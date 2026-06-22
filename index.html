@@ -76,6 +76,8 @@
   #lightbox.show{ display:flex; }
   #lightbox img{ max-width:100%; max-height:88%; border-radius:12px; object-fit:contain; }
   .err{ color:var(--bad); font-size:13px; margin-top:8px; line-height:1.5; }
+  .chip.on{ background:var(--cy); color:#04222a; border-color:var(--cy); font-weight:700; }
+  .editttl{ font-size:15px; font-weight:800; color:var(--tx); margin-bottom:4px; }
 </style>
 </head>
 <body>
@@ -125,6 +127,21 @@
       <button class="bigbtn" id="dlBtn">⬇️ 打包下載選取的照片</button>
       <div style="height:12px"></div>
       <div class="grid" id="grid"></div>
+    </div>
+
+    <div class="card" id="editCard" style="display:none">
+      <div class="editttl">🎨 統一色系（修圖・發文用）</div>
+      <div class="hint" style="margin-top:0">幫上面挑出的照片套上一致色調，整批看起來協調，發文版面更好看。選一個色調 → 套用到全部 → 打包下載。</div>
+      <div class="chips" id="filterChips" style="margin-top:12px"></div>
+      <div style="height:12px"></div>
+      <button class="bigbtn" id="applyBtn">🎨 套用到全部</button>
+      <div id="editProg" class="hint" style="display:none;margin-top:12px"></div>
+      <div id="editGridWrap" style="display:none">
+        <div style="height:12px"></div>
+        <div class="grid" id="editGrid"></div>
+        <div style="height:12px"></div>
+        <button class="bigbtn" id="dlEditBtn">⬇️ 打包下載修好的照片</button>
+      </div>
     </div>
   </div>
 </div>
@@ -242,7 +259,7 @@ $('#file').addEventListener('change', async (e)=>{
   if(!criterion){ toast('先告訴我你要挑什麼'); return; }
   const key = getKey(); if(!key){ refreshGate(); return; }
 
-  matched = []; renderResults(); $('#resCard').style.display='none';
+  matched = []; renderResults(); $('#resCard').style.display='none'; resetEdit();
   $('#errBox').style.display='none';
   $('#prog').style.display='block'; $('#pickBtn').disabled=true;
   let done=0, kept=0, failed=0, firstErr='';
@@ -277,6 +294,7 @@ $('#file').addEventListener('change', async (e)=>{
   matched.sort((a,b)=> (b.file.lastModified||0)-(a.file.lastModified||0));
   renderResults();
   $('#resCard').style.display = matched.length? 'block':'none';
+  $('#editCard').style.display = matched.length? 'block':'none';
   $('#resTotal').textContent = `（共看了 ${total} 張）`;
   toast(matched.length? `挑出 ${matched.length} 張`:'這批沒有符合的');
 });
@@ -321,10 +339,140 @@ $('#dlBtn').onclick = async ()=>{
   $('#dlBtn').disabled=false; $('#dlBtn').textContent=old;
 };
 
+/* ════════════════════════════════════════════════════════════
+   統一色系（修圖・發文用）
+   把挑出的照片套上一致色調 → 預覽 → 打包下載（編號保留順序）。
+   全部在手機本機用 canvas 處理，不上傳、不花錢。
+   ════════════════════════════════════════════════════════════ */
+const OUT_EDGE = 1440;                    // 修圖輸出最長邊（發文夠用，省記憶體）
+let editedItems = [];                     // [{blob, url, name}]
+let currentFilter = 'auto';
+
+const FILTERS = {
+  auto:  { label:'自動統一', auto:true, p:{bright:1.02, contrast:1.00, sat:1.0,  warmth:0,   tint:0, fade:.02} },
+  warm:  { label:'暖調',                p:{bright:1.03, contrast:1.05, sat:1.06, warmth:16,  tint:0, fade:.05} },
+  cool:  { label:'冷調',                p:{bright:1.02, contrast:1.05, sat:1.02, warmth:-14, tint:0, fade:.04} },
+  cream: { label:'奶油低飽和',          p:{bright:1.06, contrast:0.95, sat:0.78, warmth:8,   tint:0, fade:.12} },
+  film:  { label:'復古膠片',            p:{bright:1.00, contrast:0.96, sat:0.85, warmth:12,  tint:4, fade:.15} },
+  mono:  { label:'黑白',                p:{bright:1.03, contrast:1.10, sat:0,    warmth:0,   tint:0, fade:.04} },
+  none:  { label:'原圖',                p:{bright:1, contrast:1, sat:1, warmth:0, tint:0, fade:0} },
+};
+
+function buildFilterChips(){
+  $('#filterChips').innerHTML = Object.keys(FILTERS).map(k=>
+    `<span class="chip${k===currentFilter?' on':''}" data-k="${k}">${FILTERS[k].label}</span>`).join('');
+  $('#filterChips').querySelectorAll('.chip').forEach(c=>{
+    c.onclick=()=>{ currentFilter=c.dataset.k;
+      $('#filterChips').querySelectorAll('.chip').forEach(x=>x.classList.toggle('on', x.dataset.k===currentFilter)); };
+  });
+}
+
+function _cl(v){ return v<0?0:v>255?255:v; }
+function gradePixels(d, p, shift){
+  const sr=shift?shift.r:0, sg=shift?shift.g:0, sb=shift?shift.b:0;
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i]+sr, g=d[i+1]+sg, b=d[i+2]+sb;
+    r+=p.warmth; b-=p.warmth; g+=p.tint;             // 色溫 + 色調
+    r*=p.bright; g*=p.bright; b*=p.bright;            // 亮度
+    r=(r-128)*p.contrast+128; g=(g-128)*p.contrast+128; b=(b-128)*p.contrast+128;  // 對比
+    const gray=0.299*r+0.587*g+0.114*b;              // 飽和
+    r=gray+(r-gray)*p.sat; g=gray+(g-gray)*p.sat; b=gray+(b-gray)*p.sat;
+    if(p.fade){ r=r*(1-p.fade)+232*p.fade; g=g*(1-p.fade)+232*p.fade; b=b*(1-p.fade)+232*p.fade; }  // 退色柔調
+    d[i]=_cl(r); d[i+1]=_cl(g); d[i+2]=_cl(b);
+  }
+}
+
+function avgColor(file){
+  return new Promise(resolve=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=32; cv.height=32;
+      const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,32,32); URL.revokeObjectURL(url);
+      const d=ctx.getImageData(0,0,32,32).data; let r=0,g=0,b=0,n=0;
+      for(let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; }
+      resolve({r:r/n,g:g/n,b:b/n}); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); resolve({r:128,g:128,b:128}); };
+    img.src=url;
+  });
+}
+
+function renderEdited(file, p, shift){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let {width:w,height:h}=img; const sc=Math.min(1, OUT_EDGE/Math.max(w,h));
+      w=Math.max(1,Math.round(w*sc)); h=Math.max(1,Math.round(h*sc));
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h); URL.revokeObjectURL(url);
+      const id=ctx.getImageData(0,0,w,h); gradePixels(id.data,p,shift); ctx.putImageData(id,0,0);
+      cv.toBlob(b=>resolve(b),'image/jpeg',0.9);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('decode')); };
+    img.src=url;
+  });
+}
+
+function resetEdit(){
+  editedItems=[]; $('#editCard').style.display='none';
+  $('#editGridWrap').style.display='none'; $('#editProg').style.display='none';
+}
+
+$('#applyBtn').onclick = async ()=>{
+  const sel=[...$('#grid').querySelectorAll('.ph.sel')].map(p=>matched[+p.dataset.i]);
+  if(!sel.length){ toast('上面沒有選取任何照片'); return; }
+  const F=FILTERS[currentFilter];
+  $('#applyBtn').disabled=true; const old=$('#applyBtn').textContent;
+  $('#editProg').style.display='block'; $('#editGridWrap').style.display='none'; editedItems=[];
+  let shifts=null;
+  try{
+    if(F.auto){                                   // 自動統一：把每張的平均色往整批平均色拉近
+      $('#editProg').textContent='分析整批顏色…';
+      const avgs=await Promise.all(sel.map(m=>avgColor(m.file)));
+      const t={r:0,g:0,b:0}; avgs.forEach(a=>{t.r+=a.r;t.g+=a.g;t.b+=a.b;});
+      t.r/=avgs.length; t.g/=avgs.length; t.b/=avgs.length;
+      shifts=avgs.map(a=>({r:(t.r-a.r)*0.55, g:(t.g-a.g)*0.55, b:(t.b-a.b)*0.55}));
+    }
+    for(let i=0;i<sel.length;i++){
+      $('#editProg').textContent=`修圖中 ${i+1}/${sel.length}…`;
+      const blob=await renderEdited(sel[i].file, F.p, shifts?shifts[i]:null);
+      editedItems.push({blob, url:URL.createObjectURL(blob), name:(sel[i].file.name||('photo_'+(i+1)+'.jpg'))});
+      await new Promise(r=>setTimeout(r,0));
+    }
+    renderEditGrid(); $('#editGridWrap').style.display='block'; toast('修好了，可下載');
+  }catch(e){ toast('修圖出狀況：'+(e.message||'')); }
+  $('#editProg').style.display='none'; $('#applyBtn').disabled=false; $('#applyBtn').textContent=old;
+};
+
+function renderEditGrid(){
+  $('#editGrid').innerHTML = editedItems.map(m=>`<div class="ph sel"><img loading="lazy" src="${m.url}"></div>`).join('');
+  $('#editGrid').querySelectorAll('img').forEach(img=>{
+    img.onclick=()=>{ $('#lbImg').src=img.src; $('#lightbox').classList.add('show'); };
+  });
+}
+
+$('#dlEditBtn').onclick = async ()=>{
+  if(!editedItems.length){ toast('還沒修圖'); return; }
+  $('#dlEditBtn').disabled=true; const old=$('#dlEditBtn').textContent; $('#dlEditBtn').textContent='打包中…';
+  try{
+    const zip=new JSZip(); const used={};
+    editedItems.forEach((m,i)=>{
+      const base=(m.name||('photo_'+(i+1))).replace(/\.[^.]+$/,'');
+      let name=String(i+1).padStart(2,'0')+'_'+base+'.jpg';        // 編號在前＝保留發文順序
+      if(used[name]) name=String(i+1).padStart(2,'0')+'_'+i+'.jpg'; used[name]=1;
+      zip.file(name, m.blob);
+    });
+    const blob=await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='統一色系_發文用.zip';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    toast('已打包，存到「檔案」即可');
+  }catch(e){ toast('打包失敗：'+(e.message||'')); }
+  $('#dlEditBtn').disabled=false; $('#dlEditBtn').textContent=old;
+};
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* ── 啟動 ── */
 buildChips();
+buildFilterChips();
 $('#crit').value = localStorage.getItem(LS_CRIT) || '刺青、紋身的設計圖';
 refreshGate();
 </script>
