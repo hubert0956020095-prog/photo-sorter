@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05131a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="相簿整理">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>相簿整理 AI</title>
+<style>
+  :root{ --cy:#28e6d6; --cy2:#1aa; --bg:#05131a; --pan:#0c2230; --pan2:#0e2a3a;
+         --line:#1d4456; --tx:#d7f3f4; --mut:#6f97a3; --warn:#ffcf6b; --bad:#ff7676; --ok:#7fe9c0; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--tx);
+    font-family:-apple-system,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif; }
+  body{ padding:env(safe-area-inset-top) 0 calc(20px + env(safe-area-inset-bottom)); }
+  a{ color:var(--cy); }
+  button,input,textarea{ font-family:inherit; color:var(--tx); }
+  header{ display:flex; align-items:center; gap:10px; padding:14px 16px;
+    background:linear-gradient(180deg,#0a1e29,#06151d); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  .orb{ width:26px; height:26px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#7ff,var(--cy) 45%,#0a6 100%);
+    box-shadow:0 0 14px var(--cy); animation:breathe 3s ease-in-out infinite; flex:0 0 auto; }
+  @keyframes breathe{ 0%,100%{ transform:scale(1); opacity:.85 } 50%{ transform:scale(1.12); opacity:1 } }
+  header .ttl{ font-weight:800; letter-spacing:.5px; font-size:17px; }
+  header .gear{ margin-left:auto; width:38px; height:34px; border:1px solid var(--line); background:#0b202b;
+    border-radius:10px; font-size:17px; }
+  .wrap{ padding:16px; max-width:680px; margin:0 auto; }
+  .card{ background:var(--pan); border:1px solid var(--line); border-radius:16px; padding:15px; margin:0 0 14px; }
+  label.lab{ display:block; font-size:13px; color:var(--mut); margin:0 0 8px; font-weight:600; }
+  textarea.crit{ width:100%; min-height:56px; resize:vertical; padding:12px 13px; border-radius:13px;
+    border:1px solid var(--line); background:#0b202b; color:var(--tx); font-size:16px; line-height:1.4; }
+  .chips{ display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+  .chip{ font-size:13px; padding:6px 12px; border-radius:999px; border:1px solid var(--line);
+    background:#0b202b; color:var(--cy); }
+  .chip:active{ transform:scale(.95); }
+  .bigbtn{ width:100%; padding:15px; border-radius:15px; border:none; background:var(--cy); color:#04222a;
+    font-size:16px; font-weight:800; }
+  .bigbtn:disabled{ opacity:.5; }
+  .bigbtn:active{ transform:scale(.99); }
+  .ghost{ width:100%; padding:13px; border-radius:14px; border:1px solid var(--line); background:#0b202b;
+    color:var(--tx); font-size:15px; font-weight:700; }
+  .hint{ font-size:12.5px; color:var(--mut); line-height:1.6; margin-top:10px; }
+  .prog{ margin-top:6px; }
+  .bar{ height:8px; background:#0a2230; border-radius:99px; overflow:hidden; margin-top:9px; }
+  .bar > i{ display:block; height:100%; background:linear-gradient(90deg,var(--cy2),var(--cy)); width:0; transition:width .3s; }
+  .resn{ display:flex; align-items:center; gap:10px; margin:2px 0 12px; }
+  .resn b{ font-size:16px; } .resn .pill{ font-size:12px; color:var(--mut); }
+  .grid{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  .ph{ position:relative; aspect-ratio:1/1; border-radius:11px; overflow:hidden; background:var(--pan2);
+    border:2px solid transparent; }
+  .ph.sel{ border-color:var(--cy); }
+  .ph img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .ph .tick{ position:absolute; top:5px; right:5px; width:22px; height:22px; border-radius:50%;
+    background:rgba(5,19,26,.7); display:grid; place-items:center; font-size:13px; color:var(--cy); }
+  .ph:not(.sel) .tick{ color:var(--mut); }
+  .toast{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#0c2c38;
+    border:1px solid var(--cy); color:var(--tx); padding:10px 18px; border-radius:999px; font-size:13.5px;
+    z-index:40; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; text-align:center; }
+  .toast.show{ opacity:1; }
+  .key-in{ width:100%; padding:12px 13px; border-radius:13px; border:1px solid var(--line);
+    background:#0b202b; color:var(--tx); font-size:15px; }
+  .sheet{ position:fixed; inset:0; z-index:45; display:none; }
+  .sheet.show{ display:block; }
+  .sheet .bg{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+  .sheet .panel{ position:absolute; left:0; right:0; bottom:0; background:var(--pan);
+    border-top:1px solid var(--cy); border-radius:18px 18px 0 0; padding:20px 18px calc(22px + env(safe-area-inset-bottom));
+    max-height:88%; overflow-y:auto; }
+  .sheet .grab{ width:42px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px; }
+  .sheet h3{ margin:0 0 6px; font-size:16px; }
+  #lightbox{ position:fixed; inset:0; z-index:60; background:rgba(2,8,11,.95); display:none;
+    align-items:center; justify-content:center; padding:16px; }
+  #lightbox.show{ display:flex; }
+  #lightbox img{ max-width:100%; max-height:88%; border-radius:12px; object-fit:contain; }
+  .err{ color:var(--bad); font-size:13px; margin-top:8px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="orb"></div>
+  <div class="ttl">相簿整理 AI</div>
+  <button class="gear" id="gearBtn" title="設定">⚙️</button>
+</header>
+
+<div class="wrap">
+
+  <!-- 第一次：設定金鑰 -->
+  <div class="card" id="setupCard" style="display:none">
+    <label class="lab">先貼上你的 Google Gemini API 金鑰（只存在這支手機，不會上傳到任何地方）</label>
+    <input class="key-in" id="keyInput" type="password" placeholder="貼上 API 金鑰…" autocomplete="off">
+    <div style="height:10px"></div>
+    <button class="bigbtn" id="keySave">儲存金鑰，開始用</button>
+    <div class="hint">沒有金鑰？到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請一組，貼進來即可。金鑰只保存在你手機的瀏覽器裡。</div>
+  </div>
+
+  <!-- 主功能 -->
+  <div id="app" style="display:none">
+    <div class="card">
+      <label class="lab">你要我幫你從照片裡挑出什麼？</label>
+      <textarea class="crit" id="crit" placeholder="例如：刺青、紋身的設計圖"></textarea>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="card">
+      <button class="bigbtn" id="pickBtn">📷 選照片，開始整理</button>
+      <input id="file" type="file" accept="image/*" multiple style="display:none">
+      <div class="hint">可一次選很多張。AI 會一張張看，<b>只把符合你要求的挑出來</b>，再讓你打包下載。照片是直接從你手機傳給 Google Gemini 判斷，<b>不經過任何中間伺服器、不會被別人看到</b>。</div>
+      <div class="prog" id="prog" style="display:none">
+        <div class="hint" id="progTxt" style="margin-top:14px"></div>
+        <div class="bar"><i id="progBar"></i></div>
+      </div>
+      <div class="err" id="errBox" style="display:none"></div>
+    </div>
+
+    <div class="card" id="resCard" style="display:none">
+      <div class="resn">
+        <b id="resCount">挑出 0 張</b>
+        <span class="pill" id="resTotal"></span>
+        <button class="chip" id="selAll" style="margin-left:auto">全選/全不選</button>
+      </div>
+      <button class="bigbtn" id="dlBtn">⬇️ 打包下載選取的照片</button>
+      <div style="height:12px"></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 設定底卡 -->
+<div class="sheet" id="setSheet">
+  <div class="bg" onclick="closeSet()"></div>
+  <div class="panel">
+    <div class="grab"></div>
+    <h3>設定</h3>
+    <label class="lab" style="margin-top:14px">Gemini API 金鑰</label>
+    <input class="key-in" id="keyInput2" type="password" placeholder="貼上新的金鑰…" autocomplete="off">
+    <div style="height:10px"></div>
+    <button class="ghost" id="keySave2">更新金鑰</button>
+    <div class="hint">金鑰只存在這支手機（瀏覽器 localStorage）。在 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 申請／管理。</div>
+    <div class="hint" style="margin-top:14px">辨識模型：<b id="modelTxt"></b>（如需更換，請改網頁原始碼最上方的 MODEL）</div>
+  </div>
+</div>
+
+<!-- 放大看 -->
+<div id="lightbox" onclick="this.classList.remove('show')"><img id="lbImg" alt=""></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════════
+   相簿整理 AI — 純前端、可部署的手機網頁（與 MINGO 無關、零後端）
+   你選照片 → 每張縮圖後丟給 Google Gemini 視覺判斷是否符合你要的
+   → 把符合的挑出來 → JSZip 打包下載原圖。金鑰只存在本機。
+   ════════════════════════════════════════════════════════════ */
+const MODEL = 'gemini-2.5-flash';        // 視覺辨識模型（要換在這裡改）
+const CONCURRENCY = 3;                    // 同時最多判斷幾張
+const MAX_EDGE = 768;                     // 送給 AI 前縮圖最長邊（省流量省錢）
+
+const $ = s => document.querySelector(s);
+const LS_KEY = 'photosorter_key';
+const LS_CRIT = 'photosorter_crit';
+let matched = [];                         // [{file, url}]
+
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2400); }
+
+/* ── 金鑰 ── */
+function getKey(){ return localStorage.getItem(LS_KEY) || ''; }
+function setKey(k){ localStorage.setItem(LS_KEY, k.trim()); }
+function refreshGate(){
+  if(getKey()){ $('#setupCard').style.display='none'; $('#app').style.display='block'; }
+  else { $('#setupCard').style.display='block'; $('#app').style.display='none'; }
+}
+$('#keySave').onclick = ()=>{ const k=$('#keyInput').value.trim();
+  if(!k){ toast('請先貼上金鑰'); return; } setKey(k); $('#keyInput').value=''; refreshGate(); toast('金鑰已儲存'); };
+$('#keySave2').onclick = ()=>{ const k=$('#keyInput2').value.trim();
+  if(!k){ toast('請先貼上金鑰'); return; } setKey(k); $('#keyInput2').value=''; closeSet(); refreshGate(); toast('金鑰已更新'); };
+$('#gearBtn').onclick = ()=>{ $('#modelTxt').textContent=MODEL; $('#setSheet').classList.add('show'); };
+function closeSet(){ $('#setSheet').classList.remove('show'); }
+
+/* ── 要挑的東西（記住上次）── */
+const EXAMPLES = ['刺青、紋身的設計圖','有貓的照片','菜單','收據、發票','螢幕截圖','有文字的圖','風景','身分證件'];
+function buildChips(){
+  $('#chips').innerHTML = EXAMPLES.map(e=>`<span class="chip">${e}</span>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(c=> c.onclick=()=>{ $('#crit').value=c.textContent; saveCrit(); });
+}
+function saveCrit(){ localStorage.setItem(LS_CRIT, $('#crit').value); }
+$('#crit').addEventListener('input', saveCrit);
+
+/* ── 縮圖 + 轉 base64（給 AI 看，省流量）── */
+function downscale(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let {width:w, height:h}=img;
+      const sc=Math.min(1, MAX_EDGE/Math.max(w,h));
+      w=Math.round(w*sc); h=Math.round(h*sc);
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      const durl=cv.toDataURL('image/jpeg',0.82);
+      resolve(durl.split(',')[1]);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('decode')); };
+    img.src=url;
+  });
+}
+
+/* ── 呼叫 Gemini：這張符合「criterion」嗎？回 true/false/null(不確定) ── */
+async function classify(b64, criterion, key){
+  const body = {
+    contents:[{ parts:[
+      { text:`請判斷這張照片是否符合這個描述：「${criterion}」。\n符合就只回 yes，不符合就只回 no。只回一個英文單字。` },
+      { inline_data:{ mime_type:'image/jpeg', data:b64 } }
+    ]}],
+    generationConfig:{ temperature:0, maxOutputTokens:8, thinkingConfig:{ thinkingBudget:0 } }
+  };
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`,
+    { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if(!r.ok){
+    let msg = 'HTTP '+r.status;
+    try{ const e=await r.json(); msg = (e.error&&e.error.message)||msg; }catch(_){}
+    const err = new Error(msg); err.status=r.status; throw err;
+  }
+  const j = await r.json();
+  const txt = (j.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().toLowerCase();
+  if(txt.includes('yes')) return true;
+  if(txt.includes('no')) return false;
+  return null;
+}
+
+/* ── 主流程：選照片 → 逐張判斷 → 收集符合的 ── */
+$('#pickBtn').onclick = ()=> $('#file').click();
+$('#file').addEventListener('change', async (e)=>{
+  const files = Array.from(e.target.files||[]); e.target.value='';
+  if(!files.length) return;
+  const criterion = $('#crit').value.trim();
+  if(!criterion){ toast('先告訴我你要挑什麼'); return; }
+  const key = getKey(); if(!key){ refreshGate(); return; }
+
+  matched = []; renderResults(); $('#resCard').style.display='none';
+  $('#errBox').style.display='none';
+  $('#prog').style.display='block'; $('#pickBtn').disabled=true;
+  let done=0, kept=0, failed=0, firstErr='';
+  const total = files.length;
+  const setProg=()=>{ $('#progTxt').innerHTML=`🔎 判斷中 ${done}/${total}　已挑出 <b style="color:var(--cy)">${kept}</b> 張`;
+    $('#progBar').style.width=(done/total*100)+'%'; };
+  setProg();
+
+  // 簡單的併發池
+  let idx=0;
+  async function worker(){
+    while(idx < files.length){
+      const i = idx++; const f = files[i];
+      try{
+        const b64 = await downscale(f);
+        const ok = await classify(b64, criterion, key);
+        if(ok!==false){ kept++; matched.push({file:f, url:URL.createObjectURL(f)}); }  // 不確定(null)也先收
+      }catch(err){
+        failed++; if(!firstErr) firstErr=err.message||'出錯';
+        if(err.status===400 || err.status===403){ idx=files.length; }                  // 金鑰/模型錯，停掉整批
+      }
+      done++; setProg();
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(CONCURRENCY,files.length)}, worker));
+
+  $('#pickBtn').disabled=false; $('#prog').style.display='none';
+  if(failed && firstErr){
+    $('#errBox').style.display='block';
+    $('#errBox').innerHTML = `有 ${failed} 張判斷失敗。<br>原因：${esc(firstErr)}<br><span class="hint">若提到 API key / model，請按右上⚙️檢查金鑰是否正確。</span>`;
+  }
+  matched.sort((a,b)=> (b.file.lastModified||0)-(a.file.lastModified||0));
+  renderResults();
+  $('#resCard').style.display = matched.length? 'block':'none';
+  $('#resTotal').textContent = `（共看了 ${total} 張）`;
+  toast(matched.length? `挑出 ${matched.length} 張`:'這批沒有符合的');
+});
+
+function renderResults(){
+  $('#resCount').textContent = `挑出 ${matched.length} 張`;
+  $('#grid').innerHTML = matched.map((m,i)=>
+    `<div class="ph sel" data-i="${i}"><img loading="lazy" src="${m.url}"><div class="tick">✓</div></div>`
+  ).join('');
+  $('#grid').querySelectorAll('.ph').forEach(ph=>{
+    const img = ph.querySelector('img');
+    let moved=false;
+    img.onclick = (ev)=>{ ev.stopPropagation(); $('#lbImg').src=img.src; $('#lightbox').classList.add('show'); };
+    ph.querySelector('.tick').onclick = (ev)=>{ ev.stopPropagation(); ph.classList.toggle('sel'); };
+  });
+}
+$('#selAll').onclick = ()=>{
+  const phs=[...$('#grid').querySelectorAll('.ph')];
+  const anyOff = phs.some(p=>!p.classList.contains('sel'));
+  phs.forEach(p=> p.classList.toggle('sel', anyOff));
+};
+
+/* ── 打包下載選取的原圖 ── */
+$('#dlBtn').onclick = async ()=>{
+  const sel = [...$('#grid').querySelectorAll('.ph.sel')].map(p=> matched[+p.dataset.i]);
+  if(!sel.length){ toast('沒有選取任何照片'); return; }
+  $('#dlBtn').disabled=true; const old=$('#dlBtn').textContent; $('#dlBtn').textContent='打包中…';
+  try{
+    const zip = new JSZip();
+    const used={};
+    sel.forEach((m,i)=>{
+      let name = m.file.name || ('photo_'+(i+1)+'.jpg');
+      if(used[name]){ const dot=name.lastIndexOf('.'); name = dot>0? name.slice(0,dot)+'_'+i+name.slice(dot) : name+'_'+i; }
+      used[name]=1; zip.file(name, m.file);
+    });
+    const blob = await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='整理結果.zip'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast('已打包，存到「檔案」即可');
+  }catch(e){ toast('打包失敗：'+(e.message||'')); }
+  $('#dlBtn').disabled=false; $('#dlBtn').textContent=old;
+};
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ── 啟動 ── */
+buildChips();
+$('#crit').value = localStorage.getItem(LS_CRIT) || '刺青、紋身的設計圖';
+refreshGate();
+</script>
+</body>
+</html>
